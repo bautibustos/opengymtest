@@ -1,0 +1,17 @@
+#!/bin/sh
+# Fill NGINX_RESOLVER from the container's own resolv.conf so the template's
+# `resolver` directive points at whatever DNS this platform provides
+# (127.0.0.11 under docker compose, an fd12::/8 address on Railway).
+# Named *.envsh (not *.sh) and executable so /docker-entrypoint.sh *sources*
+# it — the export then reaches the envsubst step (20-envsubst-on-templates.sh).
+
+ns="$(awk '/^[[:space:]]*nameserver/ { print $2; exit }' /etc/resolv.conf 2>/dev/null || true)"
+[ -n "$ns" ] || ns="127.0.0.11"
+
+# bracket IPv6 addresses for nginx
+case "$ns" in
+  *:*) ns="[$ns]" ;;
+esac
+
+export NGINX_RESOLVER="$ns"
+echo "05-resolver.envsh: NGINX_RESOLVER=$NGINX_RESOLVER"

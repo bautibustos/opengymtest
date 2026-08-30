@@ -1,13 +1,26 @@
 # openGym — standalone web server: serves the static app AND proxies /api to the backend,
 # so the whole app lives on ONE origin (required for WebAuthn / passkeys).
+#
+# This is a ${VARIABLE} template — the nginx:alpine entrypoint runs envsubst over it at
+# container start (see /docker-entrypoint.d). Substituted vars (whitelisted via
+# NGINX_ENVSUBST_FILTER in the Dockerfile):
+#   PORT           - port to listen on (Railway injects it; compose sets 80)
+#   API_UPSTREAM   - host:port of the api service (compose: api:3000 / Railway: api.railway.internal:3000)
+#   NGINX_RESOLVER - DNS server, filled in from /etc/resolv.conf by 05-resolver.sh
 server {
-    listen 80;
+    listen ${PORT} default_server;
+    listen [::]:${PORT} default_server;
     root /usr/share/nginx/html;
     index index.html;
 
-    # API → backend container
+    # Resolve API_UPSTREAM at request time (Railway private DNS hands out AAAA records and the
+    # target may not exist yet when nginx boots). Using a variable in proxy_pass forces this.
+    resolver ${NGINX_RESOLVER} valid=10s;
+
+    # API -> backend service
     location /api/ {
-        proxy_pass http://api:3000;
+        set $backend ${API_UPSTREAM};
+        proxy_pass http://$backend$request_uri;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -25,7 +38,7 @@ server {
         add_header Cache-Control "no-cache, must-revalidate";
     }
 
-    # Exercise images/GIFs never change → cache hard
+    # Exercise images/GIFs never change -> cache hard
     location ~* \.(png|jpg|jpeg|gif|ico|svg|woff|woff2|webp|avif)$ {
         expires 30d;
         add_header Cache-Control "public, max-age=2592000, immutable";
